@@ -84,6 +84,7 @@ def build_confirmation_report(user: User, filters: dict) -> tuple[list[str], lis
         "Preferred Date",
         "Preferred Time Slot",
         "Status",
+        "Remarks",
         "Submitted At",
     ]
     rows = [
@@ -94,7 +95,8 @@ def build_confirmation_report(user: User, filters: dict) -> tuple[list[str], lis
             "Campaign": c.campaign.campaign_name,
             "Preferred Date": c.preferred_date.isoformat(),
             "Preferred Time Slot": c.preferred_time_slot.display_label,
-            "Status": c.submission_status,
+            "Status": c.get_submission_status_display(),
+            "Remarks": c.remarks or "-",
             "Submitted At": c.submitted_at.strftime("%Y-%m-%d %H:%M"),
         }
         for c in _filter_confirmations(user, filters)

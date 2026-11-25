@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from apps.audit_logs.services import log_audit_event
 from apps.confirmations.selectors import get_scoped_confirmations_queryset
+from apps.scheduling.constants import EXPERIENCE_ACTION_OPTIONS, EXPERIENCE_ACTION_REMARKS
 from apps.scheduling.models import BlockedSlot, Holiday, OperatingHoursConfig, TimeSlot
 from apps.scheduling.serializers import (
     BlockedSlotSerializer,
@@ -19,6 +20,7 @@ from apps.scheduling.serializers import (
     OperatingHoursConfigSerializer,
     RescheduleBookingSerializer,
     TimeSlotSerializer,
+    UpdateBookingStatusSerializer,
 )
 from apps.scheduling.services import (
     cancel_booking,
@@ -26,6 +28,7 @@ from apps.scheduling.services import (
     generate_time_slots_from_config,
     get_internal_date_availability,
     reschedule_booking,
+    update_booking_experience_status,
     update_operating_hours,
 )
 from common.exceptions.domain import DomainError
@@ -266,6 +269,39 @@ class BookingRescheduleView(APIView):
         return success_response(
             data=BookingSerializer(updated).data,
             message="Booking rescheduled successfully.",
+        )
+
+
+class BookingActionOptionsView(APIView):
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    required_permission = "confirmations.view"
+
+    def get(self, request):
+        return success_response(
+            data={
+                "actions": EXPERIENCE_ACTION_OPTIONS,
+                "remarks_by_action": EXPERIENCE_ACTION_REMARKS,
+            }
+        )
+
+
+class BookingStatusUpdateView(APIView):
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    required_permission = "confirmations.edit"
+
+    def post(self, request, pk):
+        confirmation = get_object_or_404(get_scoped_confirmations_queryset(request.user), pk=pk)
+        serializer = UpdateBookingStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated = update_booking_experience_status(
+            actor=request.user,
+            confirmation=confirmation,
+            action=serializer.validated_data["action"],
+            remarks=serializer.validated_data["remarks"],
+        )
+        return success_response(
+            data=BookingSerializer(updated).data,
+            message=f"Booking marked as {updated.get_submission_status_display()}.",
         )
 
 

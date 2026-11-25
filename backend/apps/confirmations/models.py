@@ -99,6 +99,9 @@ class ConfirmationLink(UUIDTimeStampedModel):
 class ConfirmationStatus(models.TextChoices):
     CONFIRMED = "confirmed", "Confirmed"
     RESCHEDULED = "rescheduled", "Rescheduled"
+    EXPERIENCE_COMPLETED = "experience_completed", "Experience Completed"
+    EXPERIENCE_ON_HOLD = "experience_on_hold", "Experience on Hold"
+    EXPERIENCE_POSTPONED = "experience_postponed", "Experience Postponed"
     CANCELLED = "cancelled", "Cancelled"
 
 
@@ -129,11 +132,12 @@ class Confirmation(UUIDTimeStampedModel):
         related_name="confirmations",
     )
     submission_status = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=ConfirmationStatus.choices,
         default=ConfirmationStatus.CONFIRMED,
         db_index=True,
     )
+    remarks = models.CharField(max_length=255, blank=True, default="")
     submitted_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -172,11 +176,14 @@ class Confirmation(UUIDTimeStampedModel):
 class ConfirmationHistoryAction(models.TextChoices):
     CREATED = "created", "Created"
     RESCHEDULED = "rescheduled", "Rescheduled"
+    EXPERIENCE_COMPLETED = "experience_completed", "Experience Completed"
+    EXPERIENCE_ON_HOLD = "experience_on_hold", "Experience on Hold"
+    EXPERIENCE_POSTPONED = "experience_postponed", "Experience Postponed"
     CANCELLED = "cancelled", "Cancelled"
 
 
 class ConfirmationHistory(models.Model):
-    """Immutable change history for booking reschedules and cancellations."""
+    """Immutable change history for booking reschedules, status updates, and cancellations."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     confirmation = models.ForeignKey(
@@ -184,7 +191,7 @@ class ConfirmationHistory(models.Model):
         on_delete=models.CASCADE,
         related_name="history",
     )
-    action = models.CharField(max_length=20, choices=ConfirmationHistoryAction.choices)
+    action = models.CharField(max_length=30, choices=ConfirmationHistoryAction.choices)
     previous_date = models.DateField(null=True, blank=True)
     previous_time_slot = models.ForeignKey(
         TimeSlot,

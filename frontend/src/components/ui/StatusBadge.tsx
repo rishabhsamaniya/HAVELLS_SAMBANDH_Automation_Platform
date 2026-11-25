@@ -4,9 +4,12 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   active: { bg: "bg-[#F0FDF4]", text: "text-[#15803D]", dot: "bg-status-success" },
   confirmed: { bg: "bg-[#F0FDF4]", text: "text-[#15803D]", dot: "bg-status-success" },
   completed: { bg: "bg-[#F0FDF4]", text: "text-[#15803D]", dot: "bg-status-success" },
+  experience_completed: { bg: "bg-[#F0FDF4]", text: "text-[#15803D]", dot: "bg-status-success" },
   pending: { bg: "bg-[#FFFBEB]", text: "text-[#B45309]", dot: "bg-status-warning" },
   shared: { bg: "bg-[#FFFBEB]", text: "text-[#B45309]", dot: "bg-status-warning" },
   rescheduled: { bg: "bg-[#FFFBEB]", text: "text-[#B45309]", dot: "bg-status-warning" },
+  experience_on_hold: { bg: "bg-[#FFFBEB]", text: "text-[#B45309]", dot: "bg-status-warning" },
+  experience_postponed: { bg: "bg-[#EFF6FF]", text: "text-[#1D4ED8]", dot: "bg-[#2563EB]" },
   inactive: { bg: "bg-[#FEF2F2]", text: "text-status-error", dot: "bg-status-error" },
   expired: { bg: "bg-[#FEF2F2]", text: "text-status-error", dot: "bg-status-error" },
   deactivated: { bg: "bg-[#FEF2F2]", text: "text-status-error", dot: "bg-status-error" },
@@ -20,10 +23,11 @@ export const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     text: "text-ink-primary",
     dot: "bg-ink-secondary",
   };
+  const label = status.replace(/_/g, " ");
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${style.bg} ${style.text}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium capitalize whitespace-nowrap ${style.bg} ${style.text}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
-      {status}
+      {label}
     </span>
   );
 };

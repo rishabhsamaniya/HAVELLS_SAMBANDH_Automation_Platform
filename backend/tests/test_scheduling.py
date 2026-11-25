@@ -185,3 +185,42 @@ class TestSchedulingManagement:
             format="json",
         )
         assert rebook.status_code == 201
+        rebook_id = rebook.data["data"]["id"]
+
+        # Action options endpoint exposes 3 experience actions with 6 action-based remarks each
+        opts = admin_client.get(reverse("scheduling-booking-action-options"))
+        assert opts.status_code == 200
+        actions = opts.data["data"]["actions"]
+        remarks_map = opts.data["data"]["remarks_by_action"]
+        assert [a["value"] for a in actions] == [
+            "experience_completed",
+            "experience_on_hold",
+            "experience_postponed",
+        ]
+        for action_key in ["experience_completed", "experience_on_hold", "experience_postponed"]:
+            assert len(remarks_map[action_key]) == 6
+
+        # Reject mismatched remark for chosen action
+        bad_status = admin_client.post(
+            reverse("scheduling-booking-status", args=[rebook_id]),
+            {
+                "action": "experience_completed",
+                "remarks": remarks_map["experience_on_hold"][0],
+            },
+            format="json",
+        )
+        assert bad_status.status_code == 400
+
+        # Valid Experience Completed status + remark persists and writes audit log
+        good_status = admin_client.post(
+            reverse("scheduling-booking-status", args=[rebook_id]),
+            {
+                "action": "experience_completed",
+                "remarks": remarks_map["experience_completed"][0],
+            },
+            format="json",
+        )
+        assert good_status.status_code == 200
+        assert good_status.data["data"]["submission_status"] == "experience_completed"
+        assert good_status.data["data"]["remarks"] == remarks_map["experience_completed"][0]
+        assert AuditLog.objects.filter(action="BOOKING_STATUS_UPDATED", object_id=rebook_id).exists()

@@ -328,3 +328,43 @@ def cancel_booking(*, actor: User, confirmation: Confirmation, reason: str = "")
     )
     on_booking_changed(confirmation=confirmation, action="cancelled", reason=reason)
     return confirmation
+
+
+@transaction.atomic
+def update_booking_experience_status(
+    *,
+    actor: User,
+    confirmation: Confirmation,
+    action: str,
+    remarks: str,
+) -> Confirmation:
+    """Update booking experience status (Completed / On Hold / Postponed) with action-based remark."""
+    prev_status = confirmation.submission_status
+    prev_remarks = confirmation.remarks
+
+    confirmation.submission_status = action
+    confirmation.remarks = remarks
+    confirmation.save(update_fields=["submission_status", "remarks", "updated_at"])
+
+    ConfirmationHistory.objects.create(
+        confirmation=confirmation,
+        action=action,
+        previous_date=confirmation.preferred_date,
+        previous_time_slot=confirmation.preferred_time_slot,
+        new_date=confirmation.preferred_date,
+        new_time_slot=confirmation.preferred_time_slot,
+        reason=remarks,
+        changed_by=actor,
+    )
+
+    log_audit_event(
+        user=actor,
+        action="BOOKING_STATUS_UPDATED",
+        module="scheduling",
+        object_type="Confirmation",
+        object_id=str(confirmation.id),
+        old_values={"submission_status": prev_status, "remarks": prev_remarks},
+        new_values={"submission_status": action, "remarks": remarks},
+    )
+    on_booking_changed(confirmation=confirmation, action=action, reason=remarks)
+    return confirmation

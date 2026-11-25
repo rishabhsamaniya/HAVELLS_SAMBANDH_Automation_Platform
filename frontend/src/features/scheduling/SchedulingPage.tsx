@@ -1,18 +1,64 @@
 import React, { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock } from "lucide-react";
+import { Check, Clock } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { PermissionGate } from "@/components/ui/PermissionGate";
 import { AlertBanner } from "@/components/ui/AlertBanner";
 import { extractApiErrorMessage } from "@/utils/errorExtractor";
-import { schedulingApi } from "./schedulingApi";
+import {
+  BookingActionOptionsDTO,
+  BookingDTO,
+  ExperienceActionValue,
+  schedulingApi,
+} from "./schedulingApi";
+
+const FALLBACK_ACTION_OPTIONS: BookingActionOptionsDTO = {
+  actions: [
+    { value: "experience_completed", label: "Experience Completed" },
+    { value: "experience_on_hold", label: "Experience on Hold" },
+    { value: "experience_postponed", label: "Experience Postponed" },
+  ],
+  remarks_by_action: {
+    experience_completed: [
+      "Experience delivered successfully to dealer",
+      "Surprise handed over & photo/video captured",
+      "Dealer satisfied & feedback collected",
+      "Experience completed at dealer showroom/outlet",
+      "Experience completed at dealer residence/venue",
+      "Experience completed with RM/team presence",
+    ],
+    experience_on_hold: [
+      "Dealer not reachable / phone switched off",
+      "Dealer out of station / travelling",
+      "Awaiting dealer confirmation on venue/address",
+      "Pending RM / internal approval",
+      "Gift / surprise inventory pending dispatch",
+      "Dealer requested to hold until further notice",
+    ],
+    experience_postponed: [
+      "Dealer requested new date & time",
+      "Dealer busy with personal / family commitment",
+      "Dealer shop / showroom closed on scheduled date",
+      "Logistics / vendor scheduling delay",
+      "Weather / local disruption in dealer area",
+      "Rescheduled by RM for better coordination",
+    ],
+  },
+};
+
+const VALID_EXPERIENCE_ACTIONS = new Set<string>([
+  "experience_completed",
+  "experience_on_hold",
+  "experience_postponed",
+]);
 
 export const SchedulingPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"slots" | "bookings">("bookings");
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [rowDrafts, setRowDrafts] = useState<Record<string, { action: string; remarks: string }>>({});
 
   const [openingTime, setOpeningTime] = useState("00:00");
   const [closingTime, setClosingTime] = useState("00:00");
@@ -41,6 +87,11 @@ export const SchedulingPage: React.FC = () => {
   const { data: bookings = [] } = useQuery({
     queryKey: ["scheduling-bookings"],
     queryFn: schedulingApi.listBookings,
+  });
+
+  const { data: actionOptions = FALLBACK_ACTION_OPTIONS } = useQuery({
+    queryKey: ["scheduling-booking-action-options"],
+    queryFn: schedulingApi.getBookingActionOptions,
   });
 
   const saveConfigMutation = useMutation({
@@ -73,10 +124,60 @@ export const SchedulingPage: React.FC = () => {
     },
   });
 
-  const cancelMutation = useMutation({
-    mutationFn: (id: string) => schedulingApi.cancelBooking(id, "Cancelled by internal team"),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scheduling-bookings"] }),
+  const updateStatusMutation = useMutation({
+    mutationFn: ({
+      id,
+      action,
+      remarks,
+    }: {
+      id: string;
+      action: ExperienceActionValue;
+      remarks: string;
+    }) => schedulingApi.updateBookingStatus(id, { action, remarks }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["scheduling-bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      setRowDrafts((prev) => {
+        const next = { ...prev };
+        delete next[updated.id];
+        return next;
+      });
+      setFeedback({
+        type: "success",
+        msg: `${updated.dealer_code} updated to ${updated.submission_status_label || updated.submission_status.replace(/_/g, " ")}.`,
+      });
+    },
+    onError: (err) => {
+      setFeedback({
+        type: "error",
+        msg: extractApiErrorMessage(err, "Failed to update booking status."),
+      });
+    },
   });
+
+  const getRowState = (b: BookingDTO) => {
+    const draft = rowDrafts[b.id];
+    const savedAction = VALID_EXPERIENCE_ACTIONS.has(b.submission_status) ? b.submission_status : "";
+    const savedRemarks = b.remarks || "";
+    const action = draft ? draft.action : savedAction;
+    const remarks = draft ? draft.remarks : savedRemarks;
+    const isDirty = action !== savedAction || remarks !== savedRemarks;
+    return { action, remarks, isDirty };
+  };
+
+  const handleActionChange = (b: BookingDTO, nextAction: string) => {
+    setRowDrafts((prev) => ({
+      ...prev,
+      [b.id]: { action: nextAction, remarks: "" },
+    }));
+  };
+
+  const handleRemarksChange = (b: BookingDTO, currentAction: string, nextRemarks: string) => {
+    setRowDrafts((prev) => ({
+      ...prev,
+      [b.id]: { action: currentAction, remarks: nextRemarks },
+    }));
+  };
 
   const handleGenerate24Hours = () => {
     setOpeningTime("00:00");
@@ -95,7 +196,7 @@ export const SchedulingPage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-bold text-ink-primary">Schedule Management</h1>
         <p className="text-xs text-ink-secondary mt-1">
-          Configure 24-hour time slots, slot capacities, and manage dealer bookings.
+          Configure 24-hour time slots, slot capacities, and track dealer experience status with action-based remarks.
         </p>
       </div>
 
@@ -125,33 +226,105 @@ export const SchedulingPage: React.FC = () => {
                 <th className="py-3 px-4">Preferred Date</th>
                 <th className="py-3 px-4">Time Slot</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Action</th>
+                <th className="py-3 px-4">Action</th>
+                <th className="py-3 px-4">Remarks</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line text-sm">
-              {bookings.map((b) => (
-                <tr key={b.id}>
-                  <td className="py-3 px-4 font-semibold tabular-nums">{b.dealer_code}</td>
-                  <td className="py-3 px-4">{b.campaign_name}</td>
-                  <td className="py-3 px-4 tabular-nums">{b.preferred_date}</td>
-                  <td className="py-3 px-4 tabular-nums">{b.time_slot_label}</td>
-                  <td className="py-3 px-4">
-                    <StatusBadge status={b.submission_status} />
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    {b.submission_status === "confirmed" && (
-                      <PermissionGate permission="confirmations.edit">
-                        <Button variant="ghost" size="sm" onClick={() => cancelMutation.mutate(b.id)}>
-                          Cancel
-                        </Button>
+              {bookings.map((b) => {
+                const { action, remarks, isDirty } = getRowState(b);
+                const remarksOptions = action
+                  ? actionOptions.remarks_by_action[action as ExperienceActionValue] || []
+                  : [];
+                const canSave =
+                  Boolean(action) &&
+                  Boolean(remarks) &&
+                  isDirty &&
+                  !(updateStatusMutation.isPending && updateStatusMutation.variables?.id === b.id);
+
+                return (
+                  <tr key={b.id} className="hover:bg-surface-bg/40">
+                    <td className="py-3 px-4 font-semibold tabular-nums whitespace-nowrap">{b.dealer_code}</td>
+                    <td className="py-3 px-4 whitespace-nowrap">{b.campaign_name}</td>
+                    <td className="py-3 px-4 tabular-nums whitespace-nowrap">{b.preferred_date}</td>
+                    <td className="py-3 px-4 tabular-nums whitespace-nowrap">{b.time_slot_label}</td>
+                    <td className="py-3 px-4">
+                      <StatusBadge status={b.submission_status} />
+                    </td>
+                    <td className="py-3 px-4">
+                      <PermissionGate
+                        permission="confirmations.edit"
+                        fallback={
+                          <span className="text-xs text-ink-secondary">
+                            {b.submission_status_label || b.submission_status.replace(/_/g, " ")}
+                          </span>
+                        }
+                      >
+                        <select
+                          aria-label={`Action for ${b.dealer_code}`}
+                          value={action}
+                          onChange={(e) => handleActionChange(b, e.target.value)}
+                          className="h-9 min-w-[185px] px-2.5 text-xs font-medium text-ink-primary bg-surface-white border border-line rounded-lg focus:outline-none focus:border-brand-primary"
+                        >
+                          <option value="">Select Action</option>
+                          {actionOptions.actions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
                       </PermissionGate>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="py-3 px-4">
+                      <PermissionGate
+                        permission="confirmations.edit"
+                        fallback={<span className="text-xs text-ink-secondary">{b.remarks || "—"}</span>}
+                      >
+                        <div className="flex items-center gap-2">
+                          <select
+                            aria-label={`Remarks for ${b.dealer_code}`}
+                            value={remarks}
+                            disabled={!action}
+                            onChange={(e) => handleRemarksChange(b, action, e.target.value)}
+                            className="h-9 min-w-[240px] max-w-[300px] px-2.5 text-xs text-ink-primary bg-surface-white border border-line rounded-lg focus:outline-none focus:border-brand-primary disabled:bg-surface-muted disabled:text-ink-secondary"
+                          >
+                            <option value="">
+                              {action ? "Select Remark" : "Select Action first"}
+                            </option>
+                            {remarksOptions.map((rem) => (
+                              <option key={rem} value={rem}>
+                                {rem}
+                              </option>
+                            ))}
+                          </select>
+                          <Button
+                            size="sm"
+                            variant={canSave ? "primary" : "secondary"}
+                            disabled={!canSave}
+                            isLoading={
+                              updateStatusMutation.isPending &&
+                              updateStatusMutation.variables?.id === b.id
+                            }
+                            leftIcon={<Check className="h-3.5 w-3.5" />}
+                            onClick={() =>
+                              updateStatusMutation.mutate({
+                                id: b.id,
+                                action: action as ExperienceActionValue,
+                                remarks,
+                              })
+                            }
+                          >
+                            Save
+                          </Button>
+                        </div>
+                      </PermissionGate>
+                    </td>
+                  </tr>
+                );
+              })}
               {bookings.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-ink-secondary">
+                  <td colSpan={7} className="py-8 text-center text-ink-secondary">
                     No bookings recorded yet.
                   </td>
                 </tr>

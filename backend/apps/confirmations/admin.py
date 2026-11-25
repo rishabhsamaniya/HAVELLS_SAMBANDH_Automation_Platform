@@ -31,10 +31,11 @@ class ConfirmationAdmin(admin.ModelAdmin):
         "preferred_date",
         "preferred_time_slot",
         "submission_status",
+        "remarks",
         "submitted_at",
     )
     list_filter = ("submission_status", "preferred_date", "campaign")
-    search_fields = ("dealer__dealer_code", "dealer__mobile_number")
+    search_fields = ("dealer__dealer_code", "dealer__mobile_number", "remarks")
     readonly_fields = ("id", "submitted_at", "created_at", "updated_at")
 
 

@@ -6,6 +6,7 @@ from rest_framework import serializers
 from apps.campaigns.models import Campaign
 from apps.confirmations.models import Confirmation, ConfirmationHistory
 from apps.dealers.models import Dealer
+from apps.scheduling.constants import EXPERIENCE_ACTION_REMARKS
 from apps.scheduling.models import BlockedSlot, Holiday, OperatingHoursConfig, TimeSlot
 
 
@@ -88,6 +89,7 @@ class BookingSerializer(serializers.ModelSerializer):
     assigned_rm_name = serializers.CharField(source="dealer.assigned_rm.full_name", read_only=True)
     campaign_name = serializers.CharField(source="campaign.campaign_name", read_only=True)
     time_slot_label = serializers.CharField(source="preferred_time_slot.display_label", read_only=True)
+    submission_status_label = serializers.CharField(source="get_submission_status_display", read_only=True)
 
     class Meta:
         model = Confirmation
@@ -103,6 +105,8 @@ class BookingSerializer(serializers.ModelSerializer):
             "preferred_time_slot",
             "time_slot_label",
             "submission_status",
+            "submission_status_label",
+            "remarks",
             "submitted_at",
             "created_at",
         ]
@@ -124,6 +128,28 @@ class RescheduleBookingSerializer(serializers.Serializer):
 
 class CancelBookingSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class UpdateBookingStatusSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=[
+            ("experience_completed", "Experience Completed"),
+            ("experience_on_hold", "Experience on Hold"),
+            ("experience_postponed", "Experience Postponed"),
+        ]
+    )
+    remarks = serializers.CharField(max_length=255)
+
+    def validate(self, attrs):
+        action = attrs["action"]
+        remarks = attrs["remarks"].strip()
+        allowed_remarks = EXPERIENCE_ACTION_REMARKS.get(action, [])
+        if remarks not in allowed_remarks:
+            raise serializers.ValidationError(
+                {"remarks": "Please select a valid remark for the chosen action."}
+            )
+        attrs["remarks"] = remarks
+        return attrs
 
 
 class BookingHistorySerializer(serializers.ModelSerializer):

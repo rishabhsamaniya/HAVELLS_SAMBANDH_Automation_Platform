@@ -21,6 +21,16 @@ export interface TimeSlotDTO {
   is_active: boolean;
 }
 
+export type ExperienceActionValue =
+  | "experience_completed"
+  | "experience_on_hold"
+  | "experience_postponed";
+
+export interface BookingActionOptionsDTO {
+  actions: Array<{ value: ExperienceActionValue; label: string }>;
+  remarks_by_action: Record<ExperienceActionValue, string[]>;
+}
+
 export interface BookingDTO {
   id: string;
   dealer_code: string;
@@ -31,6 +41,8 @@ export interface BookingDTO {
   preferred_time_slot: string;
   time_slot_label: string;
   submission_status: string;
+  submission_status_label?: string;
+  remarks: string;
   submitted_at: string;
 }
 
@@ -63,6 +75,24 @@ export const schedulingApi = {
 
   async listBookings(): Promise<BookingDTO[]> {
     const { data } = await apiClient.get<ApiSuccessResponse<BookingDTO[]>>("/scheduling/bookings/");
+    return data.data;
+  },
+
+  async getBookingActionOptions(): Promise<BookingActionOptionsDTO> {
+    const { data } = await apiClient.get<ApiSuccessResponse<BookingActionOptionsDTO>>(
+      "/scheduling/bookings/action-options/"
+    );
+    return data.data;
+  },
+
+  async updateBookingStatus(
+    id: string,
+    payload: { action: ExperienceActionValue; remarks: string }
+  ): Promise<BookingDTO> {
+    const { data } = await apiClient.post<ApiSuccessResponse<BookingDTO>>(
+      `/scheduling/bookings/${id}/status/`,
+      payload
+    );
     return data.data;
   },
 

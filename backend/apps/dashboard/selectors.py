@@ -63,10 +63,17 @@ def get_dashboard_overview(
         expires_at__gte=now,
     ).count()
 
-    confirmed_qs = confs_qs.filter(submission_status=ConfirmationStatus.CONFIRMED)
+    confirmed_qs = confs_qs.exclude(submission_status=ConfirmationStatus.CANCELLED)
     confirmations_received = confirmed_qs.count()
     todays_confirmations = confirmed_qs.filter(submitted_at__date=today).count()
-    upcoming_bookings = confirmed_qs.filter(preferred_date__gte=today).count()
+    upcoming_bookings = confs_qs.filter(
+        submission_status__in=[
+            ConfirmationStatus.CONFIRMED,
+            ConfirmationStatus.EXPERIENCE_ON_HOLD,
+            ConfirmationStatus.EXPERIENCE_POSTPONED,
+        ],
+        preferred_date__gte=today,
+    ).count()
 
     return {
         "total_dealers": total_dealers,
@@ -94,7 +101,7 @@ def get_dashboard_analytics(
         links_qs, confs_qs, campaign_id=campaign_id, start_date=start_date, end_date=end_date
     )
 
-    confirmed_qs = confs_qs.filter(submission_status=ConfirmationStatus.CONFIRMED)
+    confirmed_qs = confs_qs.exclude(submission_status=ConfirmationStatus.CANCELLED)
     now = timezone.now()
 
     # 1. Daily confirmations
