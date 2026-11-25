@@ -53,6 +53,7 @@ export const PublicConfirmationPage: React.FC = () => {
 
   const [slots, setSlots] = useState<AvailableSlotDTO[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotNotice, setSlotNotice] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submittedResult, setSubmittedResult] = useState<PublicSubmitResult | null>(null);
 
@@ -60,6 +61,7 @@ export const PublicConfirmationPage: React.FC = () => {
     register,
     handleSubmit,
     watch,
+    getValues,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<PublicFormValues>({
@@ -81,7 +83,14 @@ export const PublicConfirmationPage: React.FC = () => {
       setFatalError(null);
       try {
         const meta = await publicConfirmApi.getLinkInfo(token);
-        if (active) setLinkMeta(meta);
+        if (active) {
+          setLinkMeta(meta);
+          if (meta.dealer_code) setValue("dealer_code", meta.dealer_code);
+          if (meta.mobile_number) setValue("mobile_number", meta.mobile_number);
+          if (meta.default_slots && meta.default_slots.length > 0) {
+            setSlots(meta.default_slots);
+          }
+        }
       } catch (err) {
         const axiosErr = err as AxiosError<ApiErrorResponse>;
         const errData = axiosErr.response?.data?.error;
@@ -98,22 +107,39 @@ export const PublicConfirmationPage: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [token, setValue]);
 
   useEffect(() => {
-    if (!selectedDate || !token) {
-      setSlots([]);
+    if (!token) return;
+    if (!selectedDate) {
+      setSlotNotice(null);
+      if (linkMeta?.default_slots) {
+        setSlots(linkMeta.default_slots);
+      }
       return;
     }
     let active = true;
-    setValue("preferred_time_slot", "");
+    setSlotNotice(null);
     (async () => {
       setSlotsLoading(true);
       try {
         const available = await publicConfirmApi.getSlotsForDate(token, selectedDate);
-        if (active) setSlots(available);
-      } catch {
-        if (active) setSlots([]);
+        if (!active) return;
+        setSlots(available);
+        const currentSlotId = getValues("preferred_time_slot");
+        if (currentSlotId && !available.some((s) => s.id === currentSlotId)) {
+          setValue("preferred_time_slot", "");
+          setSlotNotice("Your previously selected time slot is unavailable for this date. Please choose another slot.");
+        }
+      } catch (err) {
+        if (!active) return;
+        const axiosErr = err as AxiosError<ApiErrorResponse>;
+        const msg =
+          axiosErr.response?.data?.error?.message ||
+          "Unable to load time slots for the selected date. Please try again.";
+        setSlots([]);
+        setValue("preferred_time_slot", "");
+        setSlotNotice(msg);
       } finally {
         if (active) setSlotsLoading(false);
       }
@@ -121,7 +147,7 @@ export const PublicConfirmationPage: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [selectedDate, token, setValue]);
+  }, [selectedDate, token, setValue, getValues, linkMeta]);
 
   const onSubmit = async (values: PublicFormValues) => {
     setSubmitError(null);
@@ -260,23 +286,27 @@ export const PublicConfirmationPage: React.FC = () => {
         <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
           {submitError && <AlertBanner variant="error" message={submitError} />}
 
-          {/* Field 1: Dealer Code */}
+          {/* Field 1: Dealer Code (Auto-filled from personalized link) */}
           <TextInput
             label="Dealer Code"
             required
-            placeholder="Enter your Dealer Code"
+            readOnly
+            placeholder="Dealer Code"
+            className="bg-surface-bg text-ink-primary font-semibold tabular-nums cursor-default"
             error={errors.dealer_code?.message}
             {...register("dealer_code")}
           />
 
-          {/* Field 2: Mobile Number */}
+          {/* Field 2: Mobile Number (Auto-filled from personalized link) */}
           <TextInput
             label="Mobile Number"
             prefixText="+91"
             required
+            readOnly
             inputMode="numeric"
             maxLength={10}
-            placeholder="Enter 10-digit Mobile Number"
+            placeholder="10-digit Mobile Number"
+            className="bg-surface-bg text-ink-primary font-semibold tabular-nums cursor-default"
             error={errors.mobile_number?.message}
             {...register("mobile_number")}
           />
@@ -315,14 +345,14 @@ export const PublicConfirmationPage: React.FC = () => {
             )}
           </div>
 
-          {/* Field 4: Preferred Time Slot (Configurable 1-Hour AM/PM Slots) */}
+          {/* Field 4: Preferred Time Slot (24-Hour Configurable 1-Hour AM/PM Slots) */}
           <div className="space-y-1.5">
             <label htmlFor="preferred-time-slot" className="block text-sm font-medium text-ink-primary">
               Preferred Time Slot<span className="text-brand-primary ml-0.5">*</span>
             </label>
             <select
               id="preferred-time-slot"
-              disabled={!selectedDate || slotsLoading}
+              disabled={slotsLoading}
               className={[
                 "w-full h-[42px] px-3.5 text-sm text-ink-primary bg-surface-white border rounded-lg transition-colors",
                 "focus:outline-none focus:ring-2 disabled:bg-surface-muted disabled:text-ink-secondary",
@@ -333,11 +363,9 @@ export const PublicConfirmationPage: React.FC = () => {
               {...register("preferred_time_slot")}
             >
               <option value="">
-                {!selectedDate
-                  ? "Select a Time Slot"
-                  : slotsLoading
+                {slotsLoading
                   ? "Loading available time slots..."
-                  : slots.length === 0
+                  : selectedDate && slots.length === 0
                   ? "No time slots available for this date"
                   : "Select a Time Slot"}
               </option>
@@ -347,11 +375,15 @@ export const PublicConfirmationPage: React.FC = () => {
                 </option>
               ))}
             </select>
-            {errors.preferred_time_slot && (
+            {errors.preferred_time_slot ? (
               <p role="alert" className="text-xs text-status-error">
                 {errors.preferred_time_slot.message}
               </p>
-            )}
+            ) : slotNotice ? (
+              <p role="alert" className="text-xs text-status-warning">
+                {slotNotice}
+              </p>
+            ) : null}
           </div>
 
           <div className="pt-2">

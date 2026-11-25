@@ -8,7 +8,7 @@ from apps.permissions.services import PermissionService
 
 
 def get_scoped_dealers_queryset(user: User) -> QuerySet[Dealer]:
-    qs = Dealer.objects.select_related("assigned_rm", "created_by").all()
+    qs = Dealer.objects.select_related("assigned_rm", "campaign", "created_by").all()
     return PermissionService.scope_dealer_queryset(user, qs, rm_field="assigned_rm")
 
 

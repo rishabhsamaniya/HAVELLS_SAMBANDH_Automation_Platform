@@ -112,6 +112,10 @@ class Command(BaseCommand):
             for code in codenames:
                 RolePermission.objects.get_or_create(role=role, permission=perm_map[code])
 
+        from apps.scheduling.services import generate_time_slots_from_config
+
+        generate_time_slots_from_config()
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {len(PERMISSION_CATALOG)} permissions across {len(DEFAULT_ROLE_PERMISSIONS)} system roles."

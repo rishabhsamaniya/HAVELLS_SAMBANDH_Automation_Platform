@@ -167,12 +167,35 @@ class TestDealerManagement:
         assert tpl.status_code == 200
         assert "spreadsheetml" in tpl["Content-Type"]
 
-        # Human-readable headers like exported sheet ("Dealer Code", "Mobile Number", "RM Mobile") work
+        # Human-readable headers + campaign_code mapping work
+        from datetime import date
+        from apps.campaigns.models import Campaign
+
+        camp = Campaign.objects.create(
+            campaign_name="Sambandh Surprises",
+            campaign_code="SURPRISE-2026",
+            start_date=date(2026, 11, 1),
+            end_date=date(2026, 11, 30),
+        )
         xlsx = _make_xlsx_file(
-            ["Dealer Code", "Mobile Number", "RM Mobile", "Status"],
-            [["FRIENDLY-01", "9876543299", "9800000002", "active"]],
+            ["Dealer Code", "Mobile Number", "RM Mobile", "Campaign Code", "Status"],
+            [["FRIENDLY-01", "9876543299", "9800000002", "SURPRISE-2026", "active"]],
         )
         res = client.post(reverse("dealers-import"), {"file": xlsx}, format="multipart")
         assert res.status_code == 200
         assert res.data["data"]["created_count"] == 1
-        assert Dealer.objects.filter(dealer_code="FRIENDLY-01").exists()
+        d = Dealer.objects.get(dealer_code="FRIENDLY-01")
+        assert d.campaign_id == camp.id
+
+        # Default campaign form field maps dealers even when Excel omits campaign_code column
+        xlsx2 = _make_xlsx_file(
+            ["dealer_code", "mobile_number", "assigned_rm_mobile"],
+            [["FRIENDLY-02", "9876543298", "9800000002"]],
+        )
+        res2 = client.post(
+            reverse("dealers-import"),
+            {"file": xlsx2, "campaign": str(camp.id)},
+            format="multipart",
+        )
+        assert res2.status_code == 200
+        assert Dealer.objects.get(dealer_code="FRIENDLY-02").campaign_id == camp.id

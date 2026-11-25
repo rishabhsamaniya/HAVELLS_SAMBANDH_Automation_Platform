@@ -102,7 +102,7 @@ class TestDashboardKPIsAndAnalytics:
         an = admin_client.get(reverse("dashboard-analytics")).data["data"]
         assert len(an["rm_performance"]) == 2
         assert len(an["campaign_performance"]) == 1
-        assert len(an["time_slot_utilization"]) == 8
+        assert len(an["time_slot_utilization"]) == 24
         assert an["pending_vs_confirmed"]["confirmed"] == 1
         assert an["pending_vs_confirmed"]["pending"] == 1
 

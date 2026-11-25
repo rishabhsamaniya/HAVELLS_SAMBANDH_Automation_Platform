@@ -23,11 +23,36 @@ def get_allow_same_day_booking() -> bool:
     return getattr(settings, "ALLOW_SAME_DAY_BOOKING", False)
 
 
+def _ensure_default_slots_exist() -> None:
+    """Auto-seed 24-hour default time slots if the table is completely empty."""
+    if not TimeSlot.objects.exists():
+        from apps.scheduling.services import generate_time_slots_from_config
+
+        generate_time_slots_from_config()
+
+
+def get_active_time_slots() -> list[dict]:
+    """Return all currently active time slots (for initial public form display)."""
+    _ensure_default_slots_exist()
+    slots = TimeSlot.objects.filter(is_active=True).order_by("start_time")
+    return [
+        {
+            "id": str(slot.id),
+            "label": slot.display_label,
+            "start_time": slot.start_time.strftime("%H:%M"),
+            "end_time": slot.end_time.strftime("%H:%M"),
+            "remaining_capacity": slot.max_capacity,
+        }
+        for slot in slots
+    ]
+
+
 def get_available_slots_for_date(target_date: date) -> list[dict]:
     """
     Return active, unblocked time slots that still have remaining capacity on target_date.
     Unavailable / full / blocked slots are NOT returned as selectable.
     """
+    _ensure_default_slots_exist()
     if Holiday.objects.filter(date=target_date, is_active=True).exists():
         return []
 
@@ -102,6 +127,7 @@ def get_eligible_dates_for_allowed_month(
         ).values_list("date", flat=True)
     )
 
+    _ensure_default_slots_exist()
     active_slots = list(TimeSlot.objects.filter(is_active=True).order_by("start_time"))
     if not active_slots:
         return []

@@ -7,12 +7,15 @@ const publicClient = axios.create({
 });
 
 export interface PublicLinkMetadata {
+  dealer_code: string;
+  mobile_number: string;
   campaign_name: string;
   allowed_month: string;
   timezone: string;
   expires_at: string;
   available_dates: string[];
   has_available_dates: boolean;
+  default_slots?: AvailableSlotDTO[];
 }
 
 export interface AvailableSlotDTO {

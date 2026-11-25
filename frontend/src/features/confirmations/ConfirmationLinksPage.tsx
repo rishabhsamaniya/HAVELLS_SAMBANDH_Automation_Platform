@@ -14,6 +14,15 @@ import {
   confirmationLinksApi,
 } from "./confirmationLinksApi";
 
+function buildWhatsAppUrl(mobile: string, message: string): string {
+  const digits = (mobile || "").replace(/\D/g, "");
+  const phone = digits.length === 10 ? `91${digits}` : digits;
+  const encodedText = encodeURIComponent(message);
+  return phone
+    ? `https://wa.me/${phone}?text=${encodedText}`
+    : `https://wa.me/?text=${encodedText}`;
+}
+
 export const ConfirmationLinksPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("");
@@ -96,13 +105,41 @@ export const ConfirmationLinksPage: React.FC = () => {
   });
 
   const copyShareMutation = useMutation({
-    mutationFn: async ({ id, mode }: { id: string; mode: "url" | "message" }) => {
-      const res = await confirmationLinksApi.copyShare(id);
-      const textToCopy = mode === "message" ? res.share_message || res.shareable_url || "" : res.shareable_url || "";
-      if (textToCopy && navigator.clipboard) {
-        await navigator.clipboard.writeText(textToCopy);
+    mutationFn: async ({
+      id,
+      mode,
+      waWindow,
+    }: {
+      id: string;
+      mode: "url" | "whatsapp";
+      waWindow?: Window | null;
+    }) => {
+      try {
+        const res = await confirmationLinksApi.copyShare(id);
+        if (mode === "whatsapp") {
+          const message = res.share_message || res.shareable_url || "";
+          const waUrl = buildWhatsAppUrl(res.dealer_mobile, message);
+          if (message && navigator.clipboard) {
+            navigator.clipboard.writeText(message).catch(() => {});
+          }
+          if (waWindow && !waWindow.closed) {
+            waWindow.location.href = waUrl;
+          } else {
+            window.open(waUrl, "_blank", "noopener,noreferrer");
+          }
+        } else {
+          const textToCopy = res.shareable_url || "";
+          if (textToCopy && navigator.clipboard) {
+            await navigator.clipboard.writeText(textToCopy);
+          }
+        }
+        return { res, mode };
+      } catch (err) {
+        if (waWindow && !waWindow.closed) {
+          waWindow.close();
+        }
+        throw err;
       }
-      return { res, mode };
     },
     onSuccess: ({ res, mode }) => {
       setCopiedKey(`${res.id}:${mode}`);
@@ -111,9 +148,18 @@ export const ConfirmationLinksPage: React.FC = () => {
       invalidateAll();
     },
     onError: (err) => {
-      setActionError(extractApiErrorMessage(err, "Unable to copy confirmation link."));
+      setActionError(extractApiErrorMessage(err, "Unable to open WhatsApp or copy confirmation link."));
     },
   });
+
+  const handleOpenWhatsApp = (linkId: string) => {
+    // Open tab synchronously within user click gesture so browser popup blockers do not block it
+    const waWindow = window.open("about:blank", "_blank");
+    if (waWindow) {
+      waWindow.opener = null;
+    }
+    copyShareMutation.mutate({ id: linkId, mode: "whatsapp", waWindow });
+  };
 
   const regenerateMutation = useMutation({
     mutationFn: (id: string) => confirmationLinksApi.regenerate(id),
@@ -133,6 +179,9 @@ export const ConfirmationLinksPage: React.FC = () => {
 
   const links = data?.data || [];
   const activeDealers = dealersRes?.data || [];
+  const bulkEligibleDealers = bulkCampaign
+    ? activeDealers.filter((d) => !d.campaign || d.campaign === bulkCampaign)
+    : activeDealers;
 
   // Track which dealers already have an active/shared/used link for the chosen campaign
   const existingDealerSetForSingle = new Set(
@@ -267,10 +316,16 @@ export const ConfirmationLinksPage: React.FC = () => {
                             <Button
                               variant="secondary"
                               size="sm"
-                              leftIcon={copiedKey === `${link.id}:message` ? <Check className="h-3.5 w-3.5 text-status-success" /> : <MessageSquare className="h-3.5 w-3.5 text-[#16A34A]" />}
-                              onClick={() => copyShareMutation.mutate({ id: link.id, mode: "message" })}
+                              leftIcon={
+                                copiedKey === `${link.id}:whatsapp` ? (
+                                  <Check className="h-3.5 w-3.5 text-status-success" />
+                                ) : (
+                                  <MessageSquare className="h-3.5 w-3.5 text-[#16A34A]" />
+                                )
+                              }
+                              onClick={() => handleOpenWhatsApp(link.id)}
                             >
-                              {copiedKey === `${link.id}:message` ? "Msg Copied!" : "Copy WhatsApp"}
+                              {copiedKey === `${link.id}:whatsapp` ? "WhatsApp Opened" : "WhatsApp"}
                             </Button>
                           </>
                         )}
@@ -426,12 +481,14 @@ export const ConfirmationLinksPage: React.FC = () => {
                   onChange={(e) => setSelectAllActive(e.target.checked)}
                   className="accent-[#D71920]"
                 />
-                <span>Select all active dealers in my scope ({activeDealers.length})</span>
+                <span>
+                  Select all eligible active dealers for this campaign ({bulkEligibleDealers.length})
+                </span>
               </label>
 
               {!selectAllActive && (
                 <div className="max-h-52 overflow-y-auto border border-line rounded-lg divide-y divide-line">
-                  {activeDealers.map((d) => (
+                  {bulkEligibleDealers.map((d) => (
                     <label
                       key={d.id}
                       className="flex items-center justify-between px-3 py-2.5 hover:bg-surface-bg cursor-pointer text-xs"
@@ -444,12 +501,17 @@ export const ConfirmationLinksPage: React.FC = () => {
                           className="accent-[#D71920]"
                         />
                         <span className="font-semibold tabular-nums">{d.dealer_code}</span>
+                        {d.campaign_code && (
+                          <span className="px-1.5 py-0.5 rounded bg-brand-tint text-brand-primary text-[10px] font-medium">
+                            {d.campaign_code}
+                          </span>
+                        )}
                       </span>
                       <span className="text-ink-secondary tabular-nums">+91 {d.mobile_number}</span>
                     </label>
                   ))}
-                  {activeDealers.length === 0 && (
-                    <p className="p-4 text-center text-xs text-ink-secondary">No active dealers available.</p>
+                  {bulkEligibleDealers.length === 0 && (
+                    <p className="p-4 text-center text-xs text-ink-secondary">No active dealers mapped to this campaign.</p>
                   )}
                 </div>
               )}

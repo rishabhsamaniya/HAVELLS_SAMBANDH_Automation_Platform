@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
 
@@ -188,7 +189,8 @@ def bulk_generate_confirmation_links(
             )
         dealers = list(scoped_dealers.filter(id__in=dealer_ids))
     else:
-        dealers = list(scoped_dealers)
+        # Respect dealer campaign mapping: include dealers mapped to this campaign (or unmapped)
+        dealers = list(scoped_dealers.filter(Q(campaign=campaign) | Q(campaign__isnull=True)))
 
     if not dealers:
         raise DomainError(

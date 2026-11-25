@@ -7,6 +7,7 @@ import { TextInput } from "@/components/ui/TextInput";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { PermissionGate } from "@/components/ui/PermissionGate";
 import { AlertBanner } from "@/components/ui/AlertBanner";
+import { campaignsApi } from "@/features/confirmations/campaignsApi";
 import { usersApi } from "@/features/users/usersApi";
 import { extractApiErrorMessage } from "@/utils/errorExtractor";
 import { dealersApi, DealerImportSummary } from "./dealersApi";
@@ -15,22 +16,36 @@ export const DealersPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [campaignFilter, setCampaignFilter] = useState("");
   const [importSummary, setImportSummary] = useState<DealerImportSummary | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
+  // Add Dealer Modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [dealerCode, setDealerCode] = useState("");
   const [dealerMobile, setDealerMobile] = useState("");
   const [assignedRm, setAssignedRm] = useState("");
+  const [dealerCampaign, setDealerCampaign] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Import Excel Modal (with Campaign mapping)
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importCampaignId, setImportCampaignId] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+
   const { data, isLoading } = useQuery({
-    queryKey: ["dealers", search, statusFilter],
+    queryKey: ["dealers", search, statusFilter, campaignFilter],
     queryFn: () =>
       dealersApi.list({
         ...(search ? { search } : {}),
         ...(statusFilter ? { status: statusFilter } : {}),
+        ...(campaignFilter ? { campaign: campaignFilter } : {}),
       }),
+  });
+
+  const { data: campaigns = [] } = useQuery({
+    queryKey: ["campaigns"],
+    queryFn: campaignsApi.list,
   });
 
   const { data: users = [] } = useQuery({
@@ -45,6 +60,7 @@ export const DealersPage: React.FC = () => {
         dealer_code: dealerCode,
         mobile_number: dealerMobile,
         assigned_rm: assignedRm,
+        campaign: dealerCampaign || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dealers"] });
@@ -52,6 +68,7 @@ export const DealersPage: React.FC = () => {
       setDealerCode("");
       setDealerMobile("");
       setAssignedRm("");
+      setDealerCampaign("");
       setFormError(null);
     },
     onError: (err) => {
@@ -60,10 +77,14 @@ export const DealersPage: React.FC = () => {
   });
 
   const importMutation = useMutation({
-    mutationFn: (file: File) => dealersApi.importExcel(file),
+    mutationFn: ({ file, campaignId }: { file: File; campaignId?: string }) =>
+      dealersApi.importExcel(file, campaignId),
     onSuccess: (summary) => {
       setImportSummary(summary);
       setImportError(null);
+      setShowImportModal(false);
+      setImportFile(null);
+      setImportCampaignId("");
       queryClient.invalidateQueries({ queryKey: ["dealers"] });
     },
     onError: (err) => {
@@ -71,7 +92,7 @@ export const DealersPage: React.FC = () => {
       setImportError(
         extractApiErrorMessage(
           err,
-          "Failed to import Excel file. Please download the template and verify required columns (dealer_code, mobile_number, assigned_rm_mobile)."
+          "Failed to import Excel file. Please download the template and verify required columns."
         )
       );
     },
@@ -105,7 +126,7 @@ export const DealersPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-ink-primary">Dealer Management</h1>
           <p className="text-xs text-ink-secondary mt-1">
-            Manage authorized Havells dealers, RM assignments, and bulk Excel operations.
+            Manage authorized Havells dealers, campaign mapping, RM assignments, and bulk Excel imports.
           </p>
         </div>
 
@@ -124,22 +145,17 @@ export const DealersPage: React.FC = () => {
             >
               Download Template
             </Button>
-            <label className="cursor-pointer">
-              <input
-                type="file"
-                accept=".xlsx"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) importMutation.mutate(file);
-                  e.target.value = "";
-                }}
-              />
-              <span className="inline-flex items-center justify-center gap-2 h-[40px] px-4 rounded-lg text-sm font-medium bg-surface-white text-brand-primary border border-brand-primary hover:bg-brand-tint transition-colors">
-                <Upload className="h-4 w-4" />
-                {importMutation.isPending ? "Importing..." : "Import Excel"}
-              </span>
-            </label>
+            <Button
+              variant="outline-red"
+              size="md"
+              leftIcon={<Upload className="h-4 w-4" />}
+              onClick={() => {
+                setImportError(null);
+                setShowImportModal(true);
+              }}
+            >
+              Import Excel
+            </Button>
           </PermissionGate>
           <PermissionGate permission="dealers.add">
             <Button size="md" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowAddModal(true)}>
@@ -149,7 +165,7 @@ export const DealersPage: React.FC = () => {
         </div>
       </div>
 
-      {importError && <AlertBanner variant="error" message={importError} />}
+      {importError && !showImportModal && <AlertBanner variant="error" message={importError} />}
       {importSummary && (
         <div className="space-y-3">
           <AlertBanner
@@ -195,10 +211,22 @@ export const DealersPage: React.FC = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by Dealer Code or Mobile Number..."
+            placeholder="Search by Dealer Code, Mobile Number, or Campaign..."
             className="w-full h-[40px] pl-9 pr-3 text-sm rounded-lg border border-line focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/15"
           />
         </div>
+        <select
+          value={campaignFilter}
+          onChange={(e) => setCampaignFilter(e.target.value)}
+          className="h-[40px] px-3 text-sm rounded-lg border border-line bg-surface-white focus:outline-none focus:border-brand-primary"
+        >
+          <option value="">All Campaigns</option>
+          {campaigns.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.campaign_name} ({c.campaign_code})
+            </option>
+          ))}
+        </select>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
@@ -218,6 +246,7 @@ export const DealersPage: React.FC = () => {
               <tr className="bg-surface-bg border-b border-line text-xs font-semibold uppercase tracking-wider text-ink-secondary">
                 <th className="py-3 px-4">Dealer Code</th>
                 <th className="py-3 px-4">Mobile Number</th>
+                <th className="py-3 px-4">Campaign</th>
                 <th className="py-3 px-4">Assigned RM</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Created</th>
@@ -226,13 +255,13 @@ export const DealersPage: React.FC = () => {
             <tbody className="divide-y divide-line text-sm">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-ink-secondary">
+                  <td colSpan={6} className="py-8 text-center text-ink-secondary">
                     Loading dealers...
                   </td>
                 </tr>
               ) : dealers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-ink-secondary">
+                  <td colSpan={6} className="py-8 text-center text-ink-secondary">
                     No dealers found matching the current filters.
                   </td>
                 </tr>
@@ -244,6 +273,15 @@ export const DealersPage: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 tabular-nums text-ink-primary">
                       +91 {dealer.mobile_number}
+                    </td>
+                    <td className="py-3 px-4 text-xs">
+                      {dealer.campaign_name ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-brand-tint text-brand-primary font-medium">
+                          {dealer.campaign_name}
+                        </span>
+                      ) : (
+                        <span className="text-ink-secondary">—</span>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-ink-primary">{dealer.assigned_rm_name}</td>
                     <td className="py-3 px-4">
@@ -260,6 +298,7 @@ export const DealersPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Add Dealer Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-surface-white rounded-2xl shadow-modal max-w-md w-full p-6 space-y-4">
@@ -311,6 +350,23 @@ export const DealersPage: React.FC = () => {
                   ))}
                 </select>
               </div>
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-ink-primary">
+                  Map Campaign
+                </label>
+                <select
+                  value={dealerCampaign}
+                  onChange={(e) => setDealerCampaign(e.target.value)}
+                  className="w-full h-[42px] px-3 text-sm rounded-lg border border-line bg-surface-white"
+                >
+                  <option value="">Optional — Select Campaign</option>
+                  {campaigns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.campaign_name} ({c.campaign_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="flex justify-end gap-2 pt-2">
                 <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)}>
                   Cancel
@@ -318,6 +374,87 @@ export const DealersPage: React.FC = () => {
                 <Button type="submit" isLoading={createDealerMutation.isPending}>
                   Save Dealer
                 </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import Dealers Excel Modal (with Campaign Mapping) */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-surface-white rounded-2xl shadow-modal max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-ink-primary">Import Dealers from Excel</h2>
+              <button type="button" onClick={() => setShowImportModal(false)} className="text-ink-secondary">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-ink-secondary leading-relaxed">
+              Select a Campaign below to map all uploaded dealers automatically, or include a{" "}
+              <code className="font-mono text-ink-primary">campaign_code</code> column per row in your{" "}
+              <code className="font-mono text-ink-primary">.xlsx</code> file.
+            </p>
+            {importError && <AlertBanner variant="error" message={importError} />}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (importFile) {
+                  importMutation.mutate({
+                    file: importFile,
+                    campaignId: importCampaignId || undefined,
+                  });
+                }
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-ink-primary">
+                  Map Campaign (Optional Default for All Rows)
+                </label>
+                <select
+                  value={importCampaignId}
+                  onChange={(e) => setImportCampaignId(e.target.value)}
+                  className="w-full h-[42px] px-3 text-sm rounded-lg border border-line bg-surface-white"
+                >
+                  <option value="">Use campaign_code column in Excel (or leave unmapped)</option>
+                  {campaigns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.campaign_name} ({c.campaign_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-ink-primary">
+                  Excel File (.xlsx)<span className="text-brand-primary ml-0.5">*</span>
+                </label>
+                <input
+                  type="file"
+                  accept=".xlsx"
+                  required
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-ink-primary file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border file:border-line file:bg-surface-bg file:text-xs file:font-medium hover:file:bg-surface-muted"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className="text-xs font-medium text-brand-primary hover:text-brand-dark underline"
+                >
+                  Download .xlsx Template
+                </button>
+                <div className="flex gap-2">
+                  <Button type="button" variant="secondary" onClick={() => setShowImportModal(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" isLoading={importMutation.isPending} disabled={!importFile}>
+                    Upload &amp; Import
+                  </Button>
+                </div>
               </div>
             </form>
           </div>

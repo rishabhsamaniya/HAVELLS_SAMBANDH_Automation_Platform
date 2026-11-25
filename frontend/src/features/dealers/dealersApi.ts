@@ -9,6 +9,9 @@ export interface DealerDTO {
   assigned_rm: string;
   assigned_rm_name: string;
   assigned_rm_mobile: string;
+  campaign: string | null;
+  campaign_name: string | null;
+  campaign_code: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +33,7 @@ export const dealersApi = {
     dealer_code: string;
     mobile_number: string;
     assigned_rm: string;
+    campaign?: string | null;
     status?: string;
   }): Promise<DealerDTO> {
     const { data } = await apiClient.post<ApiSuccessResponse<DealerDTO>>("/dealers/", payload);
@@ -41,9 +45,12 @@ export const dealersApi = {
     return data.data;
   },
 
-  async importExcel(file: File): Promise<DealerImportSummary> {
+  async importExcel(file: File, campaignId?: string): Promise<DealerImportSummary> {
     const formData = new FormData();
     formData.append("file", file);
+    if (campaignId) {
+      formData.append("campaign", campaignId);
+    }
     const { data } = await apiClient.post<ApiSuccessResponse<DealerImportSummary>>(
       "/dealers/import/",
       formData,

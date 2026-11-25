@@ -17,6 +17,7 @@ from apps.confirmations.models import (
 )
 from apps.scheduling.models import BlockedSlot, Holiday, TimeSlot
 from apps.scheduling.selectors import (
+    get_active_time_slots,
     get_allow_same_day_booking,
     get_authoritative_today,
     get_available_slots_for_date,
@@ -82,12 +83,15 @@ def get_public_link_metadata(*, raw_token: str, today_override: date | None = No
         today_override=today_override,
     )
     return {
+        "dealer_code": link.dealer.dealer_code,
+        "mobile_number": link.dealer.mobile_number,
         "campaign_name": link.campaign.campaign_name,
         "allowed_month": link.allowed_month,
         "timezone": tz_name,
         "expires_at": link.expires_at,
         "available_dates": available_dates,
         "has_available_dates": len(available_dates) > 0,
+        "default_slots": get_active_time_slots(),
     }
 
 

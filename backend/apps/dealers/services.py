@@ -7,6 +7,7 @@ from rest_framework import status
 
 from apps.accounts.models import User
 from apps.audit_logs.services import log_audit_event
+from apps.campaigns.models import Campaign
 from apps.dealers.models import Dealer, DealerStatus
 from common.exceptions.domain import DomainError
 from common.validators.mobile import (
@@ -19,6 +20,7 @@ COLUMN_ALIASES = {
     "dealer_code": {"dealer_code", "code", "dealercode", "dealer_id"},
     "mobile_number": {"mobile_number", "mobile", "dealer_mobile", "dealer_mobile_number", "phone", "phone_number"},
     "assigned_rm_mobile": {"assigned_rm_mobile", "rm_mobile", "rm_mobile_number", "rm_phone"},
+    "campaign_code": {"campaign_code", "campaign", "campaign_name"},
     "status": {"status"},
 }
 REQUIRED_IMPORT_COLUMNS = {"dealer_code", "mobile_number", "assigned_rm_mobile"}
@@ -48,12 +50,14 @@ def create_dealer(
     dealer_code: str,
     mobile_number: str,
     assigned_rm: User,
+    campaign: Campaign | None = None,
     dealer_status: str = DealerStatus.ACTIVE,
 ) -> Dealer:
     dealer = Dealer.objects.create(
         dealer_code=normalize_dealer_code(dealer_code),
         mobile_number=normalize_indian_mobile(mobile_number),
         assigned_rm=assigned_rm,
+        campaign=campaign,
         status=dealer_status,
         created_by=actor,
     )
@@ -67,6 +71,7 @@ def create_dealer(
             "dealer_code": dealer.dealer_code,
             "mobile_number": dealer.mobile_number,
             "assigned_rm_id": str(dealer.assigned_rm_id),
+            "campaign_id": str(dealer.campaign_id) if dealer.campaign_id else None,
             "status": dealer.status,
         },
     )
@@ -120,7 +125,12 @@ def deactivate_dealer(*, actor: User, dealer: Dealer) -> Dealer:
     return dealer
 
 
-def import_dealers_from_excel(*, actor: User, uploaded_file) -> dict:
+def import_dealers_from_excel(
+    *,
+    actor: User,
+    uploaded_file,
+    default_campaign: Campaign | None = None,
+) -> dict:
     """
     Validate and import dealers from an .xlsx file.
     - Rejects non-.xlsx files and files exceeding MAX_EXCEL_UPLOAD_MB.
@@ -189,6 +199,10 @@ def import_dealers_from_excel(*, actor: User, uploaded_file) -> dict:
     active_users_by_mobile = {
         u.mobile_number: u for u in User.objects.filter(is_active=True)
     }
+    campaigns_by_key: dict[str, Campaign] = {}
+    for c in Campaign.objects.all():
+        campaigns_by_key[c.campaign_code.strip().upper()] = c
+        campaigns_by_key[c.campaign_name.strip().upper()] = c
 
     seen_codes_in_file: set[str] = set()
     to_create: list[Dealer] = []
@@ -208,6 +222,11 @@ def import_dealers_from_excel(*, actor: User, uploaded_file) -> dict:
         raw_rm_mobile = (
             raw_row[col_idx["assigned_rm_mobile"]]
             if col_idx["assigned_rm_mobile"] < len(raw_row)
+            else ""
+        )
+        raw_campaign = (
+            raw_row[col_idx["campaign_code"]]
+            if "campaign_code" in col_idx and col_idx["campaign_code"] < len(raw_row)
             else ""
         )
         raw_status = (
@@ -235,6 +254,13 @@ def import_dealers_from_excel(*, actor: User, uploaded_file) -> dict:
         if not rm_user:
             errors_for_row.append(f"Assigned RM with mobile '{rm_mobile_str or raw_rm_mobile}' not found or inactive.")
 
+        resolved_campaign = default_campaign
+        campaign_key = str(raw_campaign or "").strip().upper()
+        if campaign_key:
+            resolved_campaign = campaigns_by_key.get(campaign_key)
+            if not resolved_campaign:
+                errors_for_row.append(f"Campaign '{raw_campaign}' not found.")
+
         dealer_status = str(raw_status or DealerStatus.ACTIVE).strip().lower()
         if dealer_status not in (DealerStatus.ACTIVE, DealerStatus.INACTIVE):
             errors_for_row.append(f"Invalid status '{dealer_status}'. Allowed: active, inactive.")
@@ -255,6 +281,7 @@ def import_dealers_from_excel(*, actor: User, uploaded_file) -> dict:
                 dealer_code=dealer_code,
                 mobile_number=mobile_str,
                 assigned_rm=rm_user,
+                campaign=resolved_campaign,
                 status=dealer_status,
                 created_by=actor,
             )

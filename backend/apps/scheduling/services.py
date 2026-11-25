@@ -23,13 +23,13 @@ from common.exceptions.domain import ConflictError, DomainError
 
 @transaction.atomic
 def generate_time_slots_from_config(config: OperatingHoursConfig | None = None) -> list[TimeSlot]:
-    """Generate or activate time slots from OperatingHoursConfig (default 10:00-18:00, 60 min)."""
+    """Generate or activate time slots from OperatingHoursConfig (default 24 hours: 00:00-00:00, 60 min)."""
     if config is None:
         config = OperatingHoursConfig.objects.filter(is_active=True).first()
     if config is None:
         config = OperatingHoursConfig.objects.create(
-            opening_time=time(10, 0),
-            closing_time=time(18, 0),
+            opening_time=time(0, 0),
+            closing_time=time(0, 0),
             slot_duration=60,
             default_capacity=1,
             allow_same_day_booking=False,
@@ -38,14 +38,17 @@ def generate_time_slots_from_config(config: OperatingHoursConfig | None = None) 
 
     base_day = datetime(2026, 1, 1)
     cursor = datetime.combine(base_day.date(), config.opening_time)
-    closing = datetime.combine(base_day.date(), config.closing_time)
+    if config.closing_time == time(0, 0):
+        closing = datetime.combine(base_day.date() + timedelta(days=1), time(0, 0))
+    else:
+        closing = datetime.combine(base_day.date(), config.closing_time)
     step = timedelta(minutes=config.slot_duration)
 
     slots = []
     while cursor + step <= closing:
         slot_start = cursor.time()
         slot_end = (cursor + step).time()
-        slot, _ = TimeSlot.objects.get_or_create(
+        slot, created = TimeSlot.objects.get_or_create(
             start_time=slot_start,
             end_time=slot_end,
             defaults={
@@ -54,6 +57,9 @@ def generate_time_slots_from_config(config: OperatingHoursConfig | None = None) 
                 "is_active": True,
             },
         )
+        if not created and not slot.is_active:
+            slot.is_active = True
+            slot.save(update_fields=["is_active", "updated_at"])
         slots.append(slot)
         cursor += step
 

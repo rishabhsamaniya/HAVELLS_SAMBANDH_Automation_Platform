@@ -10,10 +10,10 @@ from common.models.base import UUIDTimeStampedModel
 
 
 class OperatingHoursConfig(UUIDTimeStampedModel):
-    """Admin-configurable operating hours and global booking defaults."""
+    """Admin-configurable operating hours and global booking defaults (default 24 hours: 00:00 - 00:00)."""
 
-    opening_time = models.TimeField(default=time(10, 0))
-    closing_time = models.TimeField(default=time(18, 0))
+    opening_time = models.TimeField(default=time(0, 0))
+    closing_time = models.TimeField(default=time(0, 0))
     slot_duration = models.PositiveIntegerField(default=60, validators=[MinValueValidator(15)])
     default_capacity = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     allow_same_day_booking = models.BooleanField(default=False)
@@ -23,17 +23,18 @@ class OperatingHoursConfig(UUIDTimeStampedModel):
         db_table = "scheduling_operatinghoursconfig"
         constraints = [
             models.CheckConstraint(
-                condition=Q(closing_time__gt=F("opening_time")),
+                condition=Q(closing_time__gt=F("opening_time")) | Q(closing_time=time(0, 0)),
                 name="chk_operating_hours_close_gt_open",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.opening_time:%H:%M} - {self.closing_time:%H:%M} ({self.slot_duration}m)"
+        end_label = "24:00" if self.closing_time == time(0, 0) else f"{self.closing_time:%H:%M}"
+        return f"{self.opening_time:%H:%M} - {end_label} ({self.slot_duration}m)"
 
 
 class TimeSlot(UUIDTimeStampedModel):
-    """Configurable one-hour (default) booking slot."""
+    """Configurable one-hour (default) booking slot supporting full 24-hour schedule."""
 
     start_time = models.TimeField()
     end_time = models.TimeField()
@@ -50,7 +51,8 @@ class TimeSlot(UUIDTimeStampedModel):
                 name="uq_timeslot_start_end",
             ),
             models.CheckConstraint(
-                condition=Q(end_time__gt=F("start_time")),
+                condition=Q(end_time__gt=F("start_time"))
+                | (Q(end_time=time(0, 0)) & Q(start_time__gt=time(0, 0))),
                 name="chk_timeslot_end_gt_start",
             ),
             models.CheckConstraint(

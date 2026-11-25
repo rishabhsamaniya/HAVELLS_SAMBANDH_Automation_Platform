@@ -58,6 +58,27 @@ class TestSchedulingManagement:
 
         # Update slot capacity
         slot = sched_env["slots"][0]
+        assert len(sched_env["slots"]) == 24
+        assert sched_env["slots"][0].display_label == "12:00 AM – 01:00 AM"
+        assert sched_env["slots"][-1].display_label == "11:00 PM – 12:00 AM"
+
+        # Configure 24-hour operating hours (00:00 to 00:00) via API
+        cfg_res = client.post(
+            reverse("scheduling-config"),
+            {
+                "opening_time": "00:00",
+                "closing_time": "00:00",
+                "slot_duration": 60,
+                "default_capacity": 1,
+                "allow_same_day_booking": False,
+            },
+            format="json",
+        )
+        assert cfg_res.status_code == 200
+        slots_res = client.get(reverse("scheduling-slots"))
+        assert slots_res.status_code == 200
+        assert len(slots_res.data["data"]) == 24
+
         patch_res = client.patch(
             reverse("scheduling-slot-update", args=[slot.id]),
             {"max_capacity": 2},

@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.audit_logs.services import log_audit_event
+from apps.campaigns.models import Campaign, CampaignStatus
 from apps.dealers.selectors import (
     get_dealer_confirmation_history,
     get_scoped_dealers_queryset,
@@ -34,8 +35,8 @@ class DealerListCreateView(generics.ListAPIView):
         "POST": "dealers.add",
     }
     serializer_class = DealerSerializer
-    search_fields = ["dealer_code", "mobile_number"]
-    filterset_fields = ["dealer_code", "assigned_rm", "status"]
+    search_fields = ["dealer_code", "mobile_number", "campaign__campaign_name", "campaign__campaign_code"]
+    filterset_fields = ["dealer_code", "assigned_rm", "campaign", "status"]
     ordering_fields = ["created_at", "dealer_code", "status"]
 
     def get_queryset(self):
@@ -49,6 +50,7 @@ class DealerListCreateView(generics.ListAPIView):
             dealer_code=serializer.validated_data["dealer_code"],
             mobile_number=serializer.validated_data["mobile_number"],
             assigned_rm=serializer.validated_data["assigned_rm"],
+            campaign=serializer.validated_data.get("campaign"),
             dealer_status=serializer.validated_data["status"],
         )
         return success_response(
@@ -135,7 +137,22 @@ class DealerImportExcelView(APIView):
                 code="FILE_REQUIRED",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        summary = import_dealers_from_excel(actor=request.user, uploaded_file=uploaded_file)
+        default_campaign = None
+        campaign_id = request.data.get("campaign")
+        if campaign_id:
+            default_campaign = Campaign.objects.filter(id=campaign_id).first()
+            if default_campaign is None:
+                raise DomainError(
+                    message="Selected campaign was not found.",
+                    code="INVALID_CAMPAIGN",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        summary = import_dealers_from_excel(
+            actor=request.user,
+            uploaded_file=uploaded_file,
+            default_campaign=default_campaign,
+        )
         return success_response(
             data=summary,
             message=f"Import completed: {summary['created_count']} created, {summary['failed_count']} failed.",
@@ -150,12 +167,14 @@ class DealerImportTemplateView(APIView):
 
     def get(self, request):
         sample_rm_mobile = request.user.mobile_number or "9876543210"
+        active_campaign = Campaign.objects.filter(status=CampaignStatus.ACTIVE).first()
+        sample_campaign_code = active_campaign.campaign_code if active_campaign else "SAMBANDH-2026"
         return build_xlsx_response(
             filename="havells_dealers_import_template.xlsx",
             sheet_name="Dealers Template",
-            headers=["dealer_code", "mobile_number", "assigned_rm_mobile", "status"],
+            headers=["dealer_code", "mobile_number", "assigned_rm_mobile", "campaign_code", "status"],
             rows=[
-                ["HVL-1001", "9876543210", sample_rm_mobile, "active"],
+                ["HVL-1001", "9876543210", sample_rm_mobile, sample_campaign_code, "active"],
             ],
         )
 
@@ -173,6 +192,9 @@ class DealerExportView(APIView):
         rm_filter = request.query_params.get("assigned_rm")
         if rm_filter:
             qs = qs.filter(assigned_rm_id=rm_filter)
+        campaign_filter = request.query_params.get("campaign")
+        if campaign_filter:
+            qs = qs.filter(campaign_id=campaign_filter)
         dealer_code = request.query_params.get("dealer_code")
         if dealer_code:
             qs = qs.filter(dealer_code__icontains=dealer_code.strip())
@@ -181,6 +203,7 @@ class DealerExportView(APIView):
         headers = [
             "Dealer Code",
             "Mobile Number",
+            "Campaign",
             "Status",
             "Assigned RM",
             "RM Mobile",
@@ -190,6 +213,7 @@ class DealerExportView(APIView):
             [
                 d.dealer_code,
                 d.mobile_number,
+                d.campaign.campaign_code if d.campaign else "",
                 d.status,
                 d.assigned_rm.full_name,
                 d.assigned_rm.mobile_number,

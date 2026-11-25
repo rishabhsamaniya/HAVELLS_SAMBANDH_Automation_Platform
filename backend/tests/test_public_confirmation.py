@@ -86,6 +86,8 @@ class TestPublicDealerConfirmation:
         res = client.get(reverse("public-confirm-detail", args=[confirmation_setup["token1"]]))
         assert res.status_code == 200
         data = res.data["data"]
+        assert data["dealer_code"] == "HVL-D01"
+        assert data["mobile_number"] == "9876543210"
         assert data["allowed_month"] == "2026-11"
         assert data["has_available_dates"] is True
         # Link on 23 Nov -> 24 Nov through 30 Nov allowed; 22 Nov, 23 Nov, 1 Dec excluded
@@ -175,9 +177,11 @@ class TestPublicDealerConfirmation:
     ):
         client = APIClient()
         slot = confirmation_setup["slots"][0]
-        assert slot.display_label == "10:00 AM – 11:00 AM"
+        assert len(confirmation_setup["slots"]) == 24
+        assert slot.display_label == "12:00 AM – 01:00 AM"
+        assert confirmation_setup["slots"][-1].display_label == "11:00 PM – 12:00 AM"
 
-        # Dealer 1 books 24 Nov 10:00-11:00 AM (capacity = 1)
+        # Dealer 1 books 24 Nov 12:00 AM - 01:00 AM (capacity = 1)
         res1 = client.post(
             reverse("public-confirm-submit", args=[confirmation_setup["token1"]]),
             {
@@ -231,7 +235,7 @@ class TestPublicDealerConfirmation:
         assert avail.status_code == 200
         returned_slot_ids = [s["id"] for s in avail.data["data"]["slots"]]
         assert str(slot.id) not in returned_slot_ids
-        assert len(returned_slot_ids) == 7
+        assert len(returned_slot_ids) == 23
 
     def test_expired_deactivated_and_invalid_links_rejected(self, confirmation_setup):
         client = APIClient()

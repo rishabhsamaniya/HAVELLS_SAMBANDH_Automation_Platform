@@ -35,6 +35,13 @@ class Dealer(UUIDTimeStampedModel):
         on_delete=models.PROTECT,
         related_name="assigned_dealers",
     )
+    campaign = models.ForeignKey(
+        "campaigns.Campaign",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dealers",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

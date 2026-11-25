@@ -1,4 +1,6 @@
 """Serializers for Scheduling Management."""
+from datetime import time
+
 from rest_framework import serializers
 
 from apps.campaigns.models import Campaign
@@ -25,8 +27,12 @@ class OperatingHoursConfigSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         opening = attrs.get("opening_time", getattr(self.instance, "opening_time", None))
         closing = attrs.get("closing_time", getattr(self.instance, "closing_time", None))
-        if opening and closing and closing <= opening:
-            raise serializers.ValidationError({"closing_time": "Closing time must be after opening time."})
+        if opening is not None and closing is not None:
+            is_midnight_close = closing == time(0, 0)
+            if not is_midnight_close and closing <= opening:
+                raise serializers.ValidationError(
+                    {"closing_time": "Closing time must be after opening time (or 00:00 for 24-hour / midnight close)."}
+                )
         return attrs
 
 
@@ -51,8 +57,12 @@ class TimeSlotSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         start = attrs.get("start_time", getattr(self.instance, "start_time", None))
         end = attrs.get("end_time", getattr(self.instance, "end_time", None))
-        if start and end and end <= start:
-            raise serializers.ValidationError({"end_time": "End time must be after start time."})
+        if start is not None and end is not None:
+            is_midnight_end = end == time(0, 0) and start > time(0, 0)
+            if not is_midnight_end and end <= start:
+                raise serializers.ValidationError(
+                    {"end_time": "End time must be after start time (or 00:00 for midnight)."}
+                )
         return attrs
 
 

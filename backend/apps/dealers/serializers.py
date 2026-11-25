@@ -2,6 +2,7 @@
 from rest_framework import serializers
 
 from apps.accounts.models import User
+from apps.campaigns.models import Campaign
 from apps.dealers.models import Dealer, DealerStatus
 from common.validators.mobile import (
     normalize_dealer_code,
@@ -13,6 +14,8 @@ from common.validators.mobile import (
 class DealerSerializer(serializers.ModelSerializer):
     assigned_rm_name = serializers.CharField(source="assigned_rm.full_name", read_only=True)
     assigned_rm_mobile = serializers.CharField(source="assigned_rm.mobile_number", read_only=True)
+    campaign_name = serializers.CharField(source="campaign.campaign_name", read_only=True, default=None)
+    campaign_code = serializers.CharField(source="campaign.campaign_code", read_only=True, default=None)
     created_by_name = serializers.CharField(source="created_by.full_name", read_only=True, default=None)
 
     class Meta:
@@ -25,6 +28,9 @@ class DealerSerializer(serializers.ModelSerializer):
             "assigned_rm",
             "assigned_rm_name",
             "assigned_rm_mobile",
+            "campaign",
+            "campaign_name",
+            "campaign_code",
             "created_by",
             "created_by_name",
             "created_at",
@@ -36,6 +42,11 @@ class DealerCreateSerializer(serializers.Serializer):
     dealer_code = serializers.CharField(max_length=64)
     mobile_number = serializers.CharField(max_length=20)
     assigned_rm = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(is_active=True))
+    campaign = serializers.PrimaryKeyRelatedField(
+        queryset=Campaign.objects.all(),
+        required=False,
+        allow_null=True,
+    )
     status = serializers.ChoiceField(choices=DealerStatus.choices, default=DealerStatus.ACTIVE)
 
     def validate_dealer_code(self, value: str) -> str:
@@ -58,6 +69,11 @@ class DealerUpdateSerializer(serializers.Serializer):
     assigned_rm = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True),
         required=False,
+    )
+    campaign = serializers.PrimaryKeyRelatedField(
+        queryset=Campaign.objects.all(),
+        required=False,
+        allow_null=True,
     )
     status = serializers.ChoiceField(choices=DealerStatus.choices, required=False)
 

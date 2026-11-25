@@ -1,6 +1,16 @@
 import { apiClient } from "@/api/client";
 import { ApiSuccessResponse } from "@/types/api";
 
+export interface OperatingHoursConfigDTO {
+  id: string;
+  opening_time: string;
+  closing_time: string;
+  slot_duration: number;
+  default_capacity: number;
+  allow_same_day_booking: boolean;
+  is_active: boolean;
+}
+
 export interface TimeSlotDTO {
   id: string;
   start_time: string;
@@ -25,6 +35,22 @@ export interface BookingDTO {
 }
 
 export const schedulingApi = {
+  async getConfig(): Promise<OperatingHoursConfigDTO> {
+    const { data } = await apiClient.get<ApiSuccessResponse<OperatingHoursConfigDTO>>("/scheduling/config/");
+    return data.data;
+  },
+
+  async updateConfig(payload: {
+    opening_time: string;
+    closing_time: string;
+    slot_duration: number;
+    default_capacity: number;
+    allow_same_day_booking: boolean;
+  }): Promise<OperatingHoursConfigDTO> {
+    const { data } = await apiClient.post<ApiSuccessResponse<OperatingHoursConfigDTO>>("/scheduling/config/", payload);
+    return data.data;
+  },
+
   async listSlots(): Promise<TimeSlotDTO[]> {
     const { data } = await apiClient.get<ApiSuccessResponse<TimeSlotDTO[]>>("/scheduling/slots/");
     return data.data;
