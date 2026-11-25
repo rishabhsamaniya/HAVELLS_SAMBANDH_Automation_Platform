@@ -11,6 +11,18 @@ export interface DashboardOverviewDTO {
   expired_links: number;
   todays_confirmations: number;
   upcoming_bookings: number;
+  experience_completed: number;
+  experience_on_hold: number;
+  experience_postponed: number;
+  action_pending: number;
+}
+
+export interface ActionSummaryItemDTO {
+  action: "experience_completed" | "experience_on_hold" | "experience_postponed";
+  label: string;
+  count: number;
+  percentage: number;
+  remarks_breakdown: Array<{ remark: string; count: number }>;
 }
 
 export interface DashboardAnalyticsDTO {
@@ -23,6 +35,9 @@ export interface DashboardAnalyticsDTO {
     shared_links: number;
     regenerated_links: number;
     confirmed: number;
+    experience_completed: number;
+    experience_on_hold: number;
+    experience_postponed: number;
     pending: number;
     expired: number;
     conversion_rate: number;
@@ -47,6 +62,7 @@ export interface DashboardAnalyticsDTO {
     pending: number;
     expired: number;
   };
+  action_summary: ActionSummaryItemDTO[];
 }
 
 export const dashboardApi = {

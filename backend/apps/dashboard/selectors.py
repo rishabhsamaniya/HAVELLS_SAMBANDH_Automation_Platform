@@ -12,6 +12,7 @@ from apps.confirmations.selectors import (
     get_scoped_confirmations_queryset,
 )
 from apps.dealers.selectors import get_scoped_dealers_queryset
+from apps.scheduling.constants import EXPERIENCE_ACTION_OPTIONS
 from apps.scheduling.models import TimeSlot
 from apps.scheduling.selectors import get_authoritative_today
 
@@ -75,6 +76,19 @@ def get_dashboard_overview(
         preferred_date__gte=today,
     ).count()
 
+    experience_completed = confs_qs.filter(
+        submission_status=ConfirmationStatus.EXPERIENCE_COMPLETED
+    ).count()
+    experience_on_hold = confs_qs.filter(
+        submission_status=ConfirmationStatus.EXPERIENCE_ON_HOLD
+    ).count()
+    experience_postponed = confs_qs.filter(
+        submission_status=ConfirmationStatus.EXPERIENCE_POSTPONED
+    ).count()
+    action_pending = confs_qs.filter(
+        submission_status=ConfirmationStatus.CONFIRMED
+    ).count()
+
     return {
         "total_dealers": total_dealers,
         "total_confirmation_links": total_links,
@@ -85,6 +99,10 @@ def get_dashboard_overview(
         "expired_links": expired_links,
         "todays_confirmations": todays_confirmations,
         "upcoming_bookings": upcoming_bookings,
+        "experience_completed": experience_completed,
+        "experience_on_hold": experience_on_hold,
+        "experience_postponed": experience_postponed,
+        "action_pending": action_pending,
     }
 
 
@@ -148,14 +166,25 @@ def get_dashboard_analytics(
             ),
         )
     }
-    rm_conf_counts = dict(
-        confirmed_qs.values("dealer__assigned_rm_id")
-        .annotate(confirmed=Count("id"))
-        .values_list("dealer__assigned_rm_id", "confirmed")
-    )
+    rm_conf_stats = {
+        row["dealer__assigned_rm_id"]: row
+        for row in confirmed_qs.values("dealer__assigned_rm_id").annotate(
+            confirmed=Count("id"),
+            experience_completed=Count(
+                "id", filter=Q(submission_status=ConfirmationStatus.EXPERIENCE_COMPLETED)
+            ),
+            experience_on_hold=Count(
+                "id", filter=Q(submission_status=ConfirmationStatus.EXPERIENCE_ON_HOLD)
+            ),
+            experience_postponed=Count(
+                "id", filter=Q(submission_status=ConfirmationStatus.EXPERIENCE_POSTPONED)
+            ),
+        )
+    }
     rm_performance = []
     for rm_id, stats in rm_link_stats.items():
-        confirmed = rm_conf_counts.get(rm_id, 0)
+        conf_stats = rm_conf_stats.get(rm_id, {})
+        confirmed = conf_stats.get("confirmed", 0)
         total = stats["total_links"]
         rm_performance.append(
             {
@@ -165,6 +194,9 @@ def get_dashboard_analytics(
                 "shared_links": stats["shared_links"],
                 "regenerated_links": stats["regenerated_links"],
                 "confirmed": confirmed,
+                "experience_completed": conf_stats.get("experience_completed", 0),
+                "experience_on_hold": conf_stats.get("experience_on_hold", 0),
+                "experience_postponed": conf_stats.get("experience_postponed", 0),
                 "pending": stats["pending_links"],
                 "expired": stats["expired_links"],
                 "conversion_rate": round((confirmed / total) * 100, 1) if total else 0.0,
@@ -243,6 +275,42 @@ def get_dashboard_analytics(
         )
     ).count()
 
+    # 8. Action-wise summary with remarks breakdown
+    total_confs = confirmed_count
+    status_counts = dict(
+        confs_qs.values("submission_status")
+        .annotate(count=Count("id"))
+        .values_list("submission_status", "count")
+    )
+    remarks_rows = (
+        confs_qs.filter(
+            submission_status__in=[opt["value"] for opt in EXPERIENCE_ACTION_OPTIONS]
+        )
+        .exclude(remarks="")
+        .values("submission_status", "remarks")
+        .annotate(count=Count("id"))
+        .order_by("-count", "remarks")
+    )
+    remarks_by_status: dict[str, list[dict]] = {}
+    for row in remarks_rows:
+        remarks_by_status.setdefault(row["submission_status"], []).append(
+            {"remark": row["remarks"], "count": row["count"]}
+        )
+
+    action_summary = []
+    for opt in EXPERIENCE_ACTION_OPTIONS:
+        val = opt["value"]
+        cnt = status_counts.get(val, 0)
+        action_summary.append(
+            {
+                "action": val,
+                "label": opt["label"],
+                "count": cnt,
+                "percentage": round((cnt / total_confs) * 100, 1) if total_confs else 0.0,
+                "remarks_breakdown": remarks_by_status.get(val, []),
+            }
+        )
+
     return {
         "daily_confirmations": daily_confirmations,
         "monthly_confirmations": monthly_confirmations,
@@ -255,4 +323,5 @@ def get_dashboard_analytics(
             "pending": pending_count,
             "expired": expired_count,
         },
+        "action_summary": action_summary,
     }

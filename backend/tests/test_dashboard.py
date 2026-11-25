@@ -98,6 +98,10 @@ class TestDashboardKPIsAndAnalytics:
         assert ov["confirmations_received"] == 1
         assert ov["pending_confirmations"] == 1
         assert ov["upcoming_bookings"] == 1
+        assert ov["action_pending"] == 1
+        assert ov["experience_completed"] == 0
+        assert ov["experience_on_hold"] == 0
+        assert ov["experience_postponed"] == 0
 
         an = admin_client.get(reverse("dashboard-analytics")).data["data"]
         assert len(an["rm_performance"]) == 2
@@ -105,6 +109,28 @@ class TestDashboardKPIsAndAnalytics:
         assert len(an["time_slot_utilization"]) == 24
         assert an["pending_vs_confirmed"]["confirmed"] == 1
         assert an["pending_vs_confirmed"]["pending"] == 1
+        assert [a["action"] for a in an["action_summary"]] == [
+            "experience_completed",
+            "experience_on_hold",
+            "experience_postponed",
+        ]
+
+        # Mark the confirmation as Experience Completed with remark -> Dashboard updates live
+        conf = Confirmation.objects.first()
+        conf.submission_status = ConfirmationStatus.EXPERIENCE_COMPLETED
+        conf.remarks = "Experience delivered successfully to dealer"
+        conf.save()
+
+        ov2 = admin_client.get(reverse("dashboard-overview")).data["data"]
+        assert ov2["experience_completed"] == 1
+        assert ov2["action_pending"] == 0
+        an2 = admin_client.get(reverse("dashboard-analytics")).data["data"]
+        completed_item = next(a for a in an2["action_summary"] if a["action"] == "experience_completed")
+        assert completed_item["count"] == 1
+        assert completed_item["percentage"] == 100.0
+        assert completed_item["remarks_breakdown"] == [
+            {"remark": "Experience delivered successfully to dealer", "count": 1}
+        ]
 
         # RM1 sees ONLY RM1's dealer (1 dealer, 1 link, 1 confirmed, 0 pending)
         rm1_client = APIClient()

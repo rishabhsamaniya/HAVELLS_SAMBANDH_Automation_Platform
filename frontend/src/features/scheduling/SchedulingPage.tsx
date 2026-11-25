@@ -137,6 +137,7 @@ export const SchedulingPage: React.FC = () => {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["scheduling-bookings"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-analytics"] });
       setRowDrafts((prev) => {
         const next = { ...prev };
         delete next[updated.id];
